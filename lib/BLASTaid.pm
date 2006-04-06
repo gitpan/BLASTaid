@@ -3,14 +3,15 @@ package BLASTaid;
 # | PACKAGE | BLASTaid
 # | AUTHOR  | Todd Wylie
 # | EMAIL   | perldev@monkeybytes.org
-# | ID      | $Id: BLASTaid.pm 3 2006-02-13 19:31:01Z Todd Wylie $
+# | ID      | $Id: BLASTaid.pm 20 2006-03-15 21:28:53Z Todd Wylie $
 
-use version; $VERSION = qv('0.0.1');
+use version; $VERSION = qv('0.0.2');
 use warnings;
 use strict;
 use Carp;
 use IO::File;
 use IO::Seekable;
+
 
 # --------------------------------------------------------------------------
 # N E W  (class CONSTRUCTOR)
@@ -18,34 +19,35 @@ use IO::Seekable;
 # USAGE      : BLASTaid->new();
 # PURPOSE    : Constructor for class.
 # RETURNS    : Object handle.
-# PARAMETERS : report => ''
-#            : index  => ''
+# PARAMETERS : report       => ''
+#            : index        => ''
 # THROWS     : croaks if arguments are missing or report file is suspect
-# COMMENTS : Feed the interface a WU-BLAST report path and also the 
-#          : path/name where you want the index file saved. If the index 
-#          : file specified already exists, use it.
+# COMMENTS   : Feed the interface a WU-BLAST report path and also the 
+#            : path/name where you want the index file saved. If the index 
+#            : file specified already exists, use it.
 # --------------------------------------------------------------------------
 sub new {
     my ($class, %arg) = @_;
 
     # Do some simple file validation checks.
-    if ( !$arg{report}    ) { croak "new requires a REPORT value"                }   
-    if ( !-f $arg{report} ) { croak "report [$arg{report}] does not exist"       }
-    if ( !-T $arg{report} ) { croak "report [$arg{report}] is not a text report" }
+    if (!$arg{report}   ) { croak "new requires a REPORT value"                }   
+    if (!-f $arg{report}) { croak "report [$arg{report}] does not exist"       }
+    if (!-T $arg{report}) { croak "report [$arg{report}] is not a text report" }
     
     # Deal with the index file initialization.
     if (!$arg{index}) { croak "new requires a INDEX value" }   
     
     # Class setup.
     my $self  = {
-        _report => $arg{report},
-        _index  => $arg{index},
+        _report  => $arg{report},
+        _index   => $arg{index},
+        _ignored => [],
     };
     bless($self, $class);
     
     # If the supplied index already exists then use it. Else, build
     # the index file. Populate the object with the index regardless.
-    if ( -f $self->{_index} ) {
+    if (-f $self->{_index}) {
         $self->_load_index_file();
     }
     else {
@@ -59,21 +61,35 @@ sub new {
 # --------------------------------------------------------------------------
 # E A C H  R E P O R T  (accessor method)
 # ==========================================================================
-# USAGE      : BLASTaid->each_report();
+# USAGE      : BLASTaid->each_report( ignore => 'yes' );
 # PURPOSE    : Accessor method, iterator for object.
 # RETURNS    : Query names.
-# PARAMETERS : none
+# PARAMETERS : ignore => ''
 # THROWS     : croaks if no query names are in object
+# COMMENTS   : If ignore = yes, reports with no alignments are skipped.  
 # --------------------------------------------------------------------------
 sub each_report {
-    my $class = shift;
+    my ($class, %arg)  = @_;
     
+    # Must have a valid ignore clause:
+    if (!defined $arg{ignore}) { croak "each_report requires a IGNORE value" }
+
     # Iterate through the record index returning associated query
     # name:
     my @queries;
-    foreach my $id ( sort keys %{$class->{_id}} ) {
+    foreach my $id ( sort {$a <=> $b} keys %{$class->{_id}} ) {
         unless ( $class->{_id}->{$id}->{_name} eq "END-OF-FILE" ) {
-            push(@queries, $class->{_id}->{$id}->{_name});
+            unless ( $arg{ignore} eq "yes" ) {
+                push( @queries, $class->{_id}->{$id}->{_name} );
+            }
+            else {
+                if ($class->{_id}->{$id}->{_alignments} eq "TRUE") { 
+                    push( @queries, $class->{_id}->{$id}->{_name} );
+                }
+                else {
+                    push( @{$class->{_ignored}}, $class->{_id}->{$id}->{_name} );
+                }
+            }
         }
     }
     if (@queries < 1) { croak "no queries found in object" }
@@ -91,35 +107,35 @@ sub each_report {
 # PARAMETERS : query => ''
 # THROWS     : croaks if no query argument is indicated
 #            : croaks if report string is null
-#            : croaks if a record is partial (no EXIT CODE 0)
+#            : croaks if a record is partial (no EXIT CODE)
 # --------------------------------------------------------------------------
 sub return_report {
     my ($class, %arg) = @_;
-
+    
     # Must have a query name to continue.
-    if (!defined $arg{query} || $arg{query} eq "")           { croak "return_report must have a QUERY argument"           }
+    if (!defined $arg{query} || $arg{query} eq ""          ) { croak "return_report must have a QUERY argument"           }
     if (!defined $class->{_queries}->{_name}->{$arg{query}}) { croak "return_report cannot locate $arg{query} in object"  }
 
     # Seek ahead to the entry and grab the report's text.
     my $pass = "false";
     my $REPORT = new IO::File;
-    $REPORT->open("$class->{_report}") or croak "could not open file $class->{_report}";
-    $REPORT->seek($class->{_queries}->{_name}->{$arg{query}}->{_start}, 0);
+    $REPORT->open( "$class->{_report}" ) or croak "could not open file $class->{_report}";
+    $REPORT->seek( $class->{_queries}->{_name}->{$arg{query}}->{_start}, 0 );
     my $string;
     my $seeking = <$REPORT>;
     $string     = $seeking;
   SEEKENTRY:
     while (<$REPORT>) {
-        if ($_ =~ /EXIT CODE 0/) { $pass = "true" };
+        if ($_ =~ /EXIT CODE (\d+)/) { $pass = "true" };
         last SEEKENTRY if ($_ =~ /^BLAST/);
         $string .= $_;
     }
     $REPORT->close;
     
     # Error checking.
-    if ($string eq "")    { croak "return_report has null return for $arg{query}" };
-    if ($pass ne "true" ) { croak "$arg{query} is a partial report" };
-
+    if ($string eq ""  ) { croak "return_report has null return for $arg{query}" };
+    if ($pass ne "true") { croak "$arg{query} is a partial report"               };
+    
     return($string);
 }
 
@@ -136,24 +152,32 @@ sub return_report {
 # --------------------------------------------------------------------------
 sub _build_index {
     my $class = shift;
-
+    
     # Open the specified BLAST report and index it.
-    my ($id, $name);
+    my $id;
     my $REPORT = new IO::File;
-    $REPORT->open("$class->{_report}") or croak "could not open file $class->{_report}";
+    $REPORT->open( "$class->{_report}" ) or croak "could not open file $class->{_report}";
     while (<$REPORT>) {
-        if (/^BLAST/) {
+        if (/^(BLAST\S+)\s+/) {
             $id++;
-            $class->{_id}->{$id}->{_start} = $REPORT->tell - length($_);
+            $class->{_id}->{$id}->{_start}      = $REPORT->tell - length($_);
+            $class->{_id}->{$id}->{_alignments} = "TRUE";
+            $class->{_id}->{$id}->{_type}       = $1;
         }
-        elsif (/^Query\=\s+(\S+).+/) {
-            $name = $class->{_id}->{$id}->{_name} = $1;
+        elsif (/^Query\=\s+(\S+)/) {
+            $class->{_id}->{$id}->{_name} = $1;
+        }
+        elsif (/\s*.+NONE.+\s*/) {
+            # No alignments:
+            $class->{_id}->{$id}->{_alignments} = "FALSE";
         }
         elsif ($REPORT->eof) {
             $id++;
-            $class->{_id}->{$id}->{_start} = $REPORT->tell - length($_);
-            $name = $class->{_id}->{$id}->{_name} = "END-OF-FILE"
-            }
+            $class->{_id}->{$id}->{_start}      = $REPORT->tell - length($_);
+            $class->{_id}->{$id}->{_name}       = "END-OF-FILE";
+            $class->{_id}->{$id}->{_alignments} = "FALSE";
+            $class->{_id}->{$id}->{_type}       = "N/A";
+        }
     }
     $REPORT->close;
     
@@ -168,14 +192,16 @@ sub _build_index {
         }
         else {
             $class->{_queries}->{_name}->{ $class->{_id}->{$report}->{_name} } = {
-                _start => $class->{_id}->{$report}->{_start},
+                _start      => $class->{_id}->{$report}->{_start},
+                _alignments => $class->{_id}->{$report}->{_alignments},
+                _type       => $class->{_id}->{$report}->{_type},
             };
         }
     }
-
+    
     # Save the object to an index file.
     $class->_save_index_file();
-
+    
     return($class);
 }
 
@@ -194,9 +220,9 @@ sub _save_index_file {
     
     # Save the object to a file.
     my $OUT = new IO::File;
-    $OUT->open(">$class->{_index}") or croak "could not write file $class->{_index}";
+    $OUT->open( ">$class->{_index}" ) or croak "could not write file $class->{_index}";
     foreach my $report (sort {$a <=> $b} keys %{$class->{_id}}) {
-        my $line = sprintf "%-15s %-15s $class->{_id}->{$report}->{_name}", $report, $class->{_id}->{$report}->{_start};
+        my $line = sprintf "%-15s %-15s %-15s %-15s $class->{_id}->{$report}->{_name}", $report, $class->{_id}->{$report}->{_start}, $class->{_id}->{$report}->{_alignments}, $class->{_id}->{$report}->{_type};
         $OUT->print("$line\n");
     }
     $OUT->close;
@@ -221,44 +247,88 @@ sub _load_index_file {
     
     # Load object from a file.
     my $IN = new IO::File;
-    $IN->open("$class->{_index}") or croak "could not open file $class->{_index}";
+    $IN->open( "$class->{_index}" ) or croak "could not open file $class->{_index}";
     while(<$IN>) {
         chomp;
-        my ($report, $start, $name) = split(/\s+/, $_);
+        my ($report, $start, $alignments, $type, $name) = split(/\s+/, $_);
         $class->{_id}->{$report} = {
-            _start => $start,
-            _name  => $name,
+            _start      => $start,
+            _name       => $name,
+            _type       => $type,
+            _alignments => $alignments,
         };
     }
-
+    
     # Make sure that all entries have needed values. Revise the object
     # to support the query names as unique keys.
     if ($class->{_id}->{1}->{_start} != 0) { croak "check incoming INDEX format" }
     foreach my $report (sort {$a <=> $b} keys %{$class->{_id}}) {
         if (
-            !defined $class->{_id}->{$report}->{_name} ||
-            !defined $class->{_id}->{$report}->{_start}
+            !defined $class->{_id}->{$report}->{_name}  ||
+            !defined $class->{_id}->{$report}->{_start} ||
+            !defined $class->{_id}->{$report}->{_type}
             ) {
-            croak "missing QUERY NAME or START for entry $report";
+            croak "missing QUERY NAME or START or TYPE for entry $report";
         }
         else {
             $class->{_queries}->{_name}->{ $class->{_id}->{$report}->{_name} } = {
-                _start => $class->{_id}->{$report}->{_start},
+                _start      => $class->{_id}->{$report}->{_start},
+                _alignments => $class->{_id}->{$report}->{_alignments},
+                _type       => $class->{_id}->{$report}->{_type},
             };
         }
     }
-
+    
     return($class);
 }
 
-1; # End of module.
 
-__END__
+# --------------------------------------------------------------------------
+# T Y P E  (accessor method) 
+# ==========================================================================
+# USAGE      : BLASTaid->type( report => '' )
+# PURPOSE    : Returns the BLAST report type.
+# RETURNS    : Scalar: BLAST type name.
+# PARAMETERS : report => ''
+# THROWS     : croaks if report attribute is missing
+#            : croaks if type is null in the index onject
+# --------------------------------------------------------------------------
+sub type {
+    my ( $class, %arg ) = @_;
+    
+    # Do some simple file validation checks.
+    if ( !$arg{report} ) { croak "new requires a REPORT value" }   
+
+    # Validation & return:
+    if (defined $class->{_queries}->{_name}->{$arg{report}}->{_type}) {
+        return( $class->{_queries}->{_name}->{$arg{report}}->{_type} );
+    }
+    else {
+        croak "type is null for report $arg{report}";
+    }
+    
+}
 
 
 # --------------------------------------------------------------------------
-# P O D : (area below reserved for documentation)  
+# U N D E F  (accessor method)
 # ==========================================================================
+# USAGE      : BLASTaid->undef();
+# PURPOSE    : Deletes the object.
+# RETURNS    : Scalar: BLAST type name.
+# PARAMETERS : none
+# THROWS     : none
+# --------------------------------------------------------------------------
+sub undef {
+    my $class = shift;
+    
+    # Delete content from the object.
+    undef(%{$class});
+    
+    return($class);
+}
+
+__END__
 
 =head1 NAME
 
@@ -267,7 +337,7 @@ BLASTaid - A simple interface for byte indexing a WU-BLAST multi-part report for
 
 =head1 VERSION
 
-This document describes BLASTaid version 0.0.1
+This document describes BLASTaid version 0.0.2
 
 
 =head1 SYNOPSIS
@@ -285,6 +355,7 @@ This document describes BLASTaid version 0.0.1
 =head1 DESCRIPTION
 
 This module was written to aid accessing specific reports from longer, multi part WU-BLAST (http://blast.wustl.edu/) alignments reports. Depending on parameters and starting input, BLAST reports may be several gigabytes in size. Extremely large files can prove to be problematic and rate-limiting in post-process analysis. BLASTaid takes a multi-part BLAST report and creates a byte index. Specific reports may be pulled directly from the larger set by jumping directly to the entry via the byte-index. The index file need only be created one time per BLAST report... the module automatically uses a supplied index file if it already exists. A developer may also loop through every report in the report in a systematic way. Retrieval is always based around QUERY name, as this should be a unique value in the BLAST report. When BLASTaid makes QUERY names, it takes the first section of the BLAST report's "Query=" line before any white space.
+Version 0.0.2 saw a revision in index format. The new format was needed to suppport BLAST report parsing via the BLASTaid::Parse module. Version 0.0.1 index files will not work with this version: re-compile the index using this version.
 
 A simple interface script--BLASTaid--has been included in this distribution for command line usage. Run "perldoc BLASTaid" for more information.
 
@@ -318,6 +389,22 @@ each_report: Iterator method to walk through all of the queries (reports) in the
         print $string;
     }
 
+=head2 type
+
+type: Accessor method to return the BLAST report type as indicated in the BLASTaid index.
+
+    foreach my $query ( $blast->each_report() ) {
+        my $type = $blast->type( report => $query );
+        print $type;
+    }
+
+=head2 undef
+
+undef: Explicitly delete a BLASTaid index object.
+
+    $blast->undef();
+
+
 =head1 DIAGNOSTICS
 
 A user may encounter messages associated with this module if required method arguments are malformed or missing. Of interest are:
@@ -334,7 +421,7 @@ A user may encounter messages associated with this module if required method arg
 
 =item C<< ... is a partial report >>
 
-[One of the returned reports is truncated--i.e., there is no terminating "EXIT CODE 0" line in the BLAST report. Investigate the original BLAST report.]
+[One of the returned reports is truncated--i.e., there is no terminating "EXIT CODE" line in the BLAST report. Investigate the original BLAST report.]
 
 =item C<< check incoming INDEX format >>
 
@@ -367,9 +454,26 @@ C<bug-blastaid@rt.cpan.org>, or through the web interface at
 L<http://rt.cpan.org>.
 
 
+=head1 UPDATES
+
+=head2 0.0.2
+
+ -- Version 0.0.1 index files will not work with this version: re-compile the index using this version.
+ -- Index order now corresponds to order of queries in the multi-report BLAST file.
+ -- ID parse is a little lazier now; previous regex was being to restrictive.
+ -- Index output now includes if alignements are in the report (TRUE) or no alignments (FALSE).
+ -- Index output now includes type of BLAST per report.
+ -- Partial report is no longer restricted to "EXIT CODE 0"; simply requires an EXIT CODE to continue.
+ -- The "each_report" method now supports an "ignore" attribute... for ignoring entries without alignments.
+ -- Added the following external methods: type; undef.
+
+=head2 0.0.1
+
+ --Inital release to CPAN. Only indexes--no parsing of BLAST reports.
+
 =head1 ACKNOWLEDGMENTS
 
-This module was written by T. Wylie at Washington University School of Medicine's Genome Sequencing Center. It is a small component of a larger code base for the Computational Biology group. Future releases will interact with this module readily. The author wishes to thank fellow CompBio members Jarret Glasscock & David Messina for feedback and suppport.
+This module was written by T. Wylie at Washington University School of Medicine's Genome Sequencing Center. It is a small component of a larger code base for the Computational Biology group. Future releases will interact with this module readily. The author wishes to thank fellow CompBio members Jarret Glasscock & David Messina for feedback and support.
 
 =head1 AUTHOR
 

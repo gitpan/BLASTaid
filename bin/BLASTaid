@@ -4,7 +4,7 @@
 # APPLICATION: BLASTaid
 # AUTHOR:      Todd Wylie
 # CONTACT:     perldev@monkeybytes.org
-# VERSION:     $Id: BLASTaid 3 2006-02-13 19:31:01Z Todd Wylie $
+# VERSION:     $Id: BLASTaid 19 2006-03-14 21:49:54Z Todd Wylie $
 # ===========================================================================
 
 use strict;
@@ -16,8 +16,8 @@ use BLASTaid;
 # ---------------------------------------------------------------------------
 # COMMAND LINE OPTIONS
 # ---------------------------------------------------------------------------
-# --report  : Path/name of required WU-BLAST report to index.
-# --index   : Path/name of index which will be created (required).
+# --report  : Path/name of required WU-BLAST report to index (REQUIRED).
+# --index   : Path/name of index which will be created (REQUIRED).
 # --query   : Specific name of query to pull back report from report.
 # --list    : Path/name of user supplied list of queries.
 my ($report, $index, $query, $list);
@@ -37,9 +37,9 @@ if (
     (!$index)     
     ) {
     _fatal_error_exit(
-        code   => '0',
-        error  => 'MISSING COMMAND LINE ARGUMENT',
-        reason => 'USAGE: BLASTaid --report <file> --index <file> (opt: --query "<query name>")',
+                      code   => '0',
+                      error  => 'MISSING COMMAND LINE ARGUMENT',
+                      reason => 'USAGE: BLASTaid --report <file> --index <file> (opt: --query OR --list)',
                       );
 }
 
@@ -50,12 +50,15 @@ if (
 # load it into the object. If a QUERY is sent, retrieve & print the
 # report. If the LIST option is invoked, load the given LIST file and
 # loop through retrieving each report.
-my $blast  = BLASTaid->new( report => $report, index => $index );
+my $blast  = BLASTaid->new( 
+                            report => $report, 
+                            index => $index
+                            );
 if (defined $list && defined $query) {                  
     _fatal_error_exit(
-        code   => '1',
-        error  => 'INCOMPATIBLE ARGUMENTS [--query & --list]',
-        reason => 'USAGE: BLASTaid --report <file> --index <file> (opt: --query OR --list)',
+                      code   => '1',
+                      error  => 'INCOMPATIBLE ARGUMENTS [--query & --list]',
+                      reason => 'USAGE: BLASTaid --report <file> --index <file> (opt: --query OR --list)',
                       );
 }
 elsif (defined $query) {
@@ -67,9 +70,9 @@ elsif (defined $list) {
     # A list of queries to return.
     if (!-f $list) {
         _fatal_error_exit(
-            code   => '2',
-            error  => 'LIST FILE ERROR',
-            reason => 'The provided --list file is not a text file.',
+                          code   => '2',
+                          error  => 'LIST FILE ERROR',
+                          reason => 'The provided --list file is not a text file.',
                           );
     }
     else {
@@ -83,13 +86,13 @@ elsif (defined $list) {
         $in->close;
         foreach my $query (@wanted_queries) {
             my $string = $blast->return_report( query => $query );
-            print $string;        }
+            print $string;  # Prints BLAST report.
+        }
     }
 }
 
+
 # FATAL ERROR EXIT:
-# Generic error reporting for fatal errors in the typescript.pl
-# application. Use this routine for *controlled* errors.
 sub _fatal_error_exit {
     my %arg = @_;
     print "\nBLASTaid (exit code $arg{code})\n";
@@ -102,8 +105,9 @@ sub _fatal_error_exit {
 
 __END__
 
+
 # --------------------------------------------------------------------------
-# P O D : (area below reserved for documentation)  
+# P O D 
 # ==========================================================================
 
 =head1 NAME
@@ -113,7 +117,7 @@ BLASTaid - A simple interface for byte indexing a WU-BLAST multi-part report for
 
 =head1 VERSION
 
-This document describes BLASTaid version 0.0.1
+This document describes BLASTaid version 0.0.2
 
 
 =head1 SYNOPSIS
@@ -125,7 +129,14 @@ This document describes BLASTaid version 0.0.1
   
 =head1 DESCRIPTION
 
-This script is a simple interface to the BALSTaid.pm module and aids in accessing specific reports from longer, multi part WU-BLAST (http://blast.wustl.edu/) alignments reports. Depending on parameters and starting input, BLAST reports may be several gigabytes in size. Extremely large files can prove to be problematic and rate-limiting in post-process analysis. BLASTaid takes a multi-part BLAST report and creates a byte index. Specific reports may be pulled directly from the larger set by jumping directly to the entry via the byte-index. The index file need only be created one time per BLAST report... the script automatically uses a supplied index file if it already exists. A user may also also loop through a list of queries in the report in a systematic way by invoking the --list option. Retrieval is always based around QUERY name, as this should be a unique value in the BLAST report. When BLASTaid makes QUERY names, it takes the first section of the BLAST report's "Query=" line before any white space.
+This script is a simple interface to the BLASTaid.pm module and aids in accessing specific reports from longer, multi part WU-BLAST (http://blast.wustl.edu/) alignments reports. Depending on parameters and starting input, BLAST reports may be several gigabytes in size. Extremely large files can prove to be problematic and rate-limiting in post-process analysis. BLASTaid takes a multi-part BLAST report and creates a byte index. Specific reports may be pulled directly from the larger set by jumping directly to the entry via the byte-index. The index file need only be created one time per BLAST report... the script automatically uses a supplied index file if it already exists. A user may also also loop through a list of queries in the report in a systematic way by invoking the --list option. Retrieval is always based around QUERY name, as this should be a unique value in the BLAST report. When BLASTaid makes QUERY names, it takes the first section of the BLAST report's "Query=" line before any white space.
+
+The index file has the following associated format:
+
+ [ID]            [BYTE POS.]     [ALIGNMENTS?]   [TYPE]          [QUERY NAME]
+ 1               0               TRUE            BLASTN          gi|45238847|ref|NM_000945.3|
+ 2               24552           TRUE            BLASTN          gi|71143145|ref|NM_006300.2|
+ 3               177083          TRUE            BLASTN          gi|56121814|ref|NM_030957.2|
 
 
 =head1 INTERFACE 
