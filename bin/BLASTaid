@@ -117,7 +117,7 @@ BLASTaid - A simple interface for byte indexing a WU-BLAST multi-part report for
 
 =head1 VERSION
 
-This document describes BLASTaid version 0.0.2
+This document describes BLASTaid version 0.0.3
 
 
 =head1 SYNOPSIS

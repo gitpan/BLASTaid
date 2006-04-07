@@ -5,7 +5,7 @@ package BLASTaid;
 # | EMAIL   | perldev@monkeybytes.org
 # | ID      | $Id: BLASTaid.pm 20 2006-03-15 21:28:53Z Todd Wylie $
 
-use version; $VERSION = qv('0.0.2');
+use version; $VERSION = qv('0.0.3');
 use warnings;
 use strict;
 use Carp;
@@ -328,6 +328,8 @@ sub undef {
     return($class);
 }
 
+1;  # End of module.
+
 __END__
 
 =head1 NAME
@@ -337,7 +339,7 @@ BLASTaid - A simple interface for byte indexing a WU-BLAST multi-part report for
 
 =head1 VERSION
 
-This document describes BLASTaid version 0.0.2
+This document describes BLASTaid version 0.0.3
 
 
 =head1 SYNOPSIS

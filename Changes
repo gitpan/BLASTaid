@@ -1,5 +1,8 @@
 Revision history for BLASTaid
 
+0.0.3  Thu Apr  6 19:51:00 CDT 2006 
+       Small update to POD.
+
 0.0.2  Thu Apr  6 13:11:22 CDT 2006 
        -- Version 0.0.1 index files will not work with this version:
           re-compile the index using this version.
